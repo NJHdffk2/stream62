@@ -1,14 +1,23 @@
 import os
 import re
+import shutil
 import subprocess
+import http.server
+import socketserver
+import threading
+import requests
+from flask import Flask
 import json
 import time
 
 # Set environment variables
 FILE_PATH = os.environ.get('FILE_PATH', './files')
-UUID = os.environ.get('UUID', '01010101-0101-0101-0101-010101010101')  
+PROJECT_URL = os.environ.get('URL', '')
+INTERVAL_SECONDS = int(os.environ.get("TIME", 120)) 
+UUID = os.environ.get('UUID', '3d3ecd10-381d-3224-9570-3f0b7df524d3')  
 ARGO_AUTH = os.environ.get('ARGO_AUTH', '')            
 ARGO_PORT = int(os.environ.get('ARGO_PORT', '8080'))  
+PORT = int(os.environ.get('SERVER_PORT') or os.environ.get('PORT') or 3000)
 
 # Create directory if it doesn't exist
 if not os.path.exists(FILE_PATH):
@@ -28,6 +37,29 @@ for file in paths_to_delete:
         print(f"Skip Delete {file_path}")
 
 
+# http server
+class MyHandler(http.server.SimpleHTTPRequestHandler):
+
+    def log_message(self, format, *args):
+        pass
+
+    def do_GET(self):
+        if self.path == '/':
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'Hello, world')
+        
+        else:
+            self.send_response(404)
+            self.end_headers()
+            self.wfile.write(b'Not found')
+
+httpd = socketserver.TCPServer(('', PORT), MyHandler)
+server_thread = threading.Thread(target=httpd.serve_forever)
+server_thread.daemon = True
+server_thread.start()
+
+
 # Download and run files
 def download_files_and_run():
     
@@ -37,7 +69,7 @@ def download_files_and_run():
     authorize_files(files_to_authorize)
     
     # Generate configuration file
-    config ={"log":{"access":"/dev/null","error":"/dev/null","loglevel":"none",},"inbounds":[{"port":ARGO_PORT ,"listen":"0.0.0.0","protocol":"vless","settings":{"clients":[{"id":UUID }],"decryption":"none"},"streamSettings":{"network":"ws","wsSettings":{"path":"/"}}}],"outbounds":[{"protocol":"freedom","settings": {}}]}
+    config ={"log":{"access":"/dev/null","error":"/dev/null","loglevel":"none",},"inbounds":[{"port":ARGO_PORT ,"listen":"0.0.0.0","protocol":"vless","settings":{"clients":[{"id":UUID }],"decryption":"none"},"streamSettings":{"network":"ws","wsSettings":{"path":"/vle123"}}}],"outbounds":[{"protocol":"freedom","settings": {}}]}
     with open(os.path.join(FILE_PATH, 'mouse.json'), 'w', encoding='utf-8') as config_file:
         json.dump(config, config_file, ensure_ascii=False, indent=2)
        
@@ -85,3 +117,29 @@ def authorize_files(file_paths):
 
 download_files_and_run()
 
+
+# auto visit project page
+has_logged_empty_message = False
+
+def visit_project_page():
+    try:
+        if not PROJECT_URL or not INTERVAL_SECONDS:
+            global has_logged_empty_message
+            if not has_logged_empty_message:
+                print("URL or TIME variable is empty, Skipping visit web")
+                has_logged_empty_message = True
+            return
+
+        response = requests.get(PROJECT_URL)
+        response.raise_for_status() 
+
+        # print(f"Visiting project page: {PROJECT_URL}")
+        print("Page visited successfully")
+        print('\033c', end='')
+    except requests.exceptions.RequestException as error:
+        print(f"Error visiting project page: {error}")
+
+if __name__ == "__main__":
+    while True:
+        visit_project_page()
+        time.sleep(INTERVAL_SECONDS)
